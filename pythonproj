@@ -1,0 +1,700 @@
+import cv2 as cv2
+import time as time
+import argparse
+import sys
+
+import imutils
+import tkinter as tk
+import tkinter.filedialog
+import tkinter.messagebox
+import tkinter.font
+import PIL
+from PIL import Image
+from PIL import ImageTk
+
+import numpy as np
+import serial
+import re
+
+import time
+import datetime
+import runpy
+import ImportantFunctions as IF
+from datetime import datetime 
+import sqlite3
+
+from scipy.io import wavfile
+import sounddevice as sd
+from scipy.io.wavfile import write
+
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestRegressor
+from sklearn import metrics
+from sklearn import svm
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.tree import DecisionTreeRegressor
+import pickle
+
+dataset = pd.read_csv('/home/pi/Desktop/datasets_watermelon (1).csv')
+dataset.head()
+X = dataset.iloc[:, 0:1].values
+y = dataset.iloc[:, 1].values
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=0)
+
+## Mode = 1 RF
+## Mode = 2 SVM
+## Mode = 3 DT
+
+f = open("Mode.txt", "r+")
+Mode = int(f.read())
+Mode = 1
+
+if Mode != 1 and Mode != 2 and Mode !=3:
+    tk.messagebox.showinfo("Error", "Mode can only be 1,2 or 3.")
+    quit()
+f.close()
+
+##RFs = RandomForestRegressor(n_estimators=20, random_state=0)
+##RFs.fit(X_train, y_train)
+##
+##SVMs = svm.SVR()
+##SVMs.fit(X_train, y_train)
+##
+##DTs = DecisionTreeRegressor(random_state=0)
+##DTs.fit(X_train, y_train)
+##
+
+
+# Fit the model on training set
+RFs = RandomForestRegressor()
+RFs.fit(X_train, y_train)
+
+SVMs = svm.SVR()
+SVMs.fit(X_train, y_train)
+
+DTs = DecisionTreeRegressor()
+DTs.fit(X_train, y_train)
+
+
+
+
+# Save the trained model as a pickle string. 
+RF_model = pickle.dumps(RFs)
+SV_model = pickle.dumps(SVMs)
+DT_model = pickle.dumps(DTs)
+
+  
+# Load the pickled model 
+RF_from_pickle = pickle.loads(RF_model)
+SVM_from_pickle = pickle.loads(SV_model)
+DT_from_pickle = pickle.loads(DT_model)
+  
+# Use the loaded pickled model to make predictions 
+RF_from_pickle.predict(X_test)
+
+SVM_from_pickle.predict(X_test)
+
+DT_from_pickle.predict(X_test)
+
+
+print("Handshaking with other r-pi.")
+SerialData = serial.Serial("/dev/ttyS0", 9600, timeout=0.2)
+time.sleep(2)
+SerialData2 = serial.Serial("/dev/ttyACM0", 9600, timeout=0.2)
+time.sleep(2)
+print("Handshaking successful...")
+
+def cal_average(num):
+    sum_num = 0
+    for t in num:
+        sum_num = sum_num + t           
+
+    avg = sum_num / len(num)
+    return avg
+
+def freq(file, start_time, end_time):
+    sample_rate, data = wavfile.read(file)
+    start_point = int(sample_rate * start_time / 1000)
+    end_point = int(sample_rate * end_time / 1000)
+    length = (end_time - start_time) / 1000
+    counter = 0
+    counter2 = 0
+    Sum_Amplitude = 0
+    Amplitude = max(data)
+    print(max(data))
+    for i in range(start_point, end_point):
+        Sum_Amplitude = Sum_Amplitude + abs(data[i])
+        counter2 += 1
+        if data[i] < 0 and data[i+1] > 0:
+            counter += 1
+    print(Sum_Amplitude, counter2)
+    return counter/length, round((Sum_Amplitude/counter2),5)*1000
+    return counter/length, round((Amplitude)*1000,2)
+
+def DetFreq():
+    fs = 44100  # Sample rate
+    seconds = 3  # Duration of recording
+
+    myrecording = sd.rec(int(seconds * fs), samplerate=fs, channels=1)
+    sd.wait()  # Wait until recording is finished
+    write('output.wav', fs, myrecording)  # Save as WAV file
+
+    Freq, Amp = freq("output.wav", 1000 ,2000)
+    Freq, Amp = str(Freq), str(Amp)
+
+    return Freq, Amp
+
+db = sqlite3.connect("Database.db")
+
+def GetDatabase(): ##Get Database in a form of list
+    global db
+    cur = db.cursor()
+    cur.execute('SELECT * FROM Databases ORDER by "_rowid_" ASC')
+    rows = cur.fetchall()
+    return rows
+
+def InsertIntoDatabase(US,PW,FN,AGE,AD,G):
+    global db
+    cur = db.cursor()
+    cur.execute('SELECT * FROM Databases ORDER by "_rowid_" ASC')
+    rows = cur.fetchall()
+    cur.execute('INSERT INTO "main"."Databases"("Username","Password","Extra1","Extra2","Extra3","Extra4","Extra5","Extra6","Extra7","Extra8","Extra9","Extra10") VALUES ('+US+','+PW+','+FN+','+AGE+','+AD+','+G+',NULL,NULL,NULL,NULL,NULL,NULL);')
+    db.commit()
+    return rows
+
+def Login():
+    Frame1.place(x=165,y=130)
+
+def Cancel():
+    Frame1.place_forget()
+
+User = 0
+
+def GoToLoginPage():
+    Username = UsernameEntry.get()
+    Password = PasswordEntry.get()
+    Database = GetDatabase()
+    if Username == "" or Password == "":
+        tk.messagebox.showinfo("Information", "Please, fill up all fields.")
+        return
+    else:
+        global User
+        User = 0
+        
+        for row in Database:
+            if Username == row[0] and Password == row[1]:
+                print("Success")
+                UsernameEntry.delete(0,tk.END)
+                PasswordEntry.delete(0,tk.END)
+                Frame1.place_forget()
+                tk.messagebox.showinfo("Information", "Successful Login.")
+                WelcomePage.forget()
+                HomePage.pack()
+                return
+            User = User + 1
+    tk.messagebox.showinfo("Information", "User not found.")
+
+def GoToRegisterPage():
+    WelcomePage.forget()
+    RegisterPage.pack()
+
+def MainLoop():
+    global User
+    TimeLabel.configure(text=datetime.now().strftime("%H:%M:%S %p %B %d, %Y"))
+    root.after(5,MainLoop)
+
+root=tk.Tk()    #Welcome Screen
+root.state('normal')
+root.configure(background='white')
+root.attributes('-fullscreen', True)
+subFont1 = tkinter.font.Font(family='Century Gothic', size = 13)
+subFont2 = tkinter.font.Font(family='Times New Roman', size = 13, weight = "bold")
+subFont3 = tkinter.font.Font(family='Segoe UI', size = 13)
+
+WelcomePage = tk.Frame(root)
+WelcomePage.pack()
+
+Background = tk.Label(WelcomePage, text='',font = subFont1, bg='white',bd=0)
+Background.pack()
+IF.tkShow(Background, "final.png", 1)
+
+LoginButton = tk.Button(WelcomePage, text='Login', font = subFont1, width = 10, bg='white', fg='black', command=Login)
+LoginButton.place(x=180, y=330)
+
+RegisterButton = tk.Button(WelcomePage, text='Register', font = subFont1, width = 10, bg='white', fg='black', command=GoToRegisterPage)
+RegisterButton.place(x=340, y=330)
+
+def Shuts():
+    SerialData.write(bytes("B", "utf-8"))
+    time.sleep(2)
+    import os
+    os.system("sudo shutdown -h now")
+    
+ShutButton = tk.Button(WelcomePage, text='Shut Down', font = subFont1, width = 10, bg='white', fg='black', command=Shuts)
+ShutButton.place(x=500, y=330)
+
+###################################################################################################################################
+
+IF.Create_White_Screen("Frame1.png",450,230)
+
+Frame1 = tk.Frame(WelcomePage,highlightthickness=1, highlightbackground='black', borderwidth=0) #Login Page
+
+Background = tk.Label(Frame1, text='',font = subFont1, bg='cyan',bd=0)
+Background.pack()
+IF.tkShow(Background, "Frame1.png", 1)
+
+UsernameLabel = tk.Label(Frame1, text='Username: ',font = subFont1, bg='white',bd=0)
+UsernameLabel.place(x=70,y=45)
+
+UsernameEntry = tk.Entry(Frame1, bg = 'white', font = subFont1, width = 23)
+UsernameEntry.place(x=170,y=45)
+
+PasswordLabel = tk.Label(Frame1, text='Password: ',font = subFont1, bg='white',bd=0)
+PasswordLabel.place(x=70,y=95)
+
+PasswordEntry = tk.Entry(Frame1, bg = 'white', font = subFont1, width = 23, show="●")
+PasswordEntry.place(x=170,y=95)
+
+CancelButton1 = tk.Button(Frame1, text='Cancel', font = subFont1, width = 10, bg='white', fg='black', command=Cancel)
+CancelButton1.place(x=235, y=150)
+
+LoginButton1 = tk.Button(Frame1, text='Login', font = subFont1, width = 10, bg='white', fg='black', command=GoToLoginPage)
+LoginButton1.place(x=90, y=150)
+
+###################################################################################################################################
+def RegisterBack():
+    RegisterPage.forget()
+    WelcomePage.pack()
+
+def RegisterProcess():
+    Username = UsernameEntry2.get()
+    Password = PasswordEntry2.get()
+    FirstName = FirstNameEntry2A.get()
+    MiddleName = MiddleNameEntry2.get()
+    LastName = LastNameEntry2.get()
+    Age = AgeEntry2.get()
+    Address = AddressEntry2.get()
+    Gender = "H"
+    Gender = GenderSelection.get()
+
+    FullName = "!" + FirstName + "@" + MiddleName + "#" + LastName + "%"
+    
+    if Username == "":
+        tk.messagebox.showinfo("Information", "Please input a username.")
+    elif Password == "":
+        tk.messagebox.showinfo("Information", "Please input a password.")
+    elif FirstName == "":
+        tk.messagebox.showinfo("Information", "Please input your first name.")
+    elif MiddleName == "":
+        tk.messagebox.showinfo("Information", "Please input your middle initial.")
+    elif LastName == "":
+        tk.messagebox.showinfo("Information", "Please input your last name.")
+    elif Age == "":
+        tk.messagebox.showinfo("Information", "Please input your  Age.")
+    elif Address == "":
+        tk.messagebox.showinfo("Information", "Please input your Address.")
+    elif Gender == "":
+        tk.messagebox.showinfo("Information", "Please select your gender.")
+    else:
+        GenderSelection.set("")
+        MaleButton.configure(indicatoron=1)
+        FemaleButton.configure(indicatoron=2)
+        InsertIntoDatabase('"'+ Username +'"','"'+ Password +'"','"' + FullName + '"','"'+ Age +'"','"' + Address + '"','"' + Gender + '"')
+        print(Username,Password,FirstName,MiddleName,LastName,Age,Address,repr(Gender))
+        tk.messagebox.showinfo("Information", "Register Successful.")
+        RegisterBack()
+RegisterPage = tk.Frame(root)
+
+Background = tk.Label(RegisterPage, text='',font = subFont1, bg='white',bd=0)
+Background.pack()
+IF.tkShow(Background, "final.png", 1)
+
+Frame2 = tk.Frame(RegisterPage,bg="white",highlightthickness=1, highlightbackground='black', borderwidth=0)
+Frame2.place(x=100, y=15)
+
+Frame2A = tk.Frame(Frame2, bg="white")
+Frame2A.grid(row=1,column=1, pady=4)
+
+PadX1 = 3
+PadY1 = 4
+WidthLabels1 = 17
+
+WidthLabels2 = 23
+
+UsernameLabel2 = tk.Label(Frame2A, text='Username: ',font = subFont1, bg='white',bd=0,width=WidthLabels1, anchor=tk.E)
+UsernameLabel2.grid(row=1,column=1,padx=PadX1, pady=PadY1)
+
+UsernameEntry2 = tk.Entry(Frame2A, bg = 'white', font = subFont1, width = 30)
+UsernameEntry2.grid(row=1,column=2,padx=PadX1, pady=PadY1)
+
+space = tk.Label(Frame2A, text='',font = subFont1, bg='white',bd=0,width=8)
+space.grid(row=1,column=3)
+
+PasswordLabel2 = tk.Label(Frame2A, text='Password: ',font = subFont1, bg='white',bd=0,width=WidthLabels1, anchor=tk.E)
+PasswordLabel2.grid(row=2,column=1,padx=PadX1, pady=PadY1)
+
+PasswordEntry2 = tk.Entry(Frame2A, bg = 'white', font = subFont1, width = 30, show="●")
+PasswordEntry2.grid(row=2,column=2,padx=PadX1, pady=PadY1)
+
+FirstNameLabel2 = tk.Label(Frame2A, text='First Name: ',font = subFont1, bg='white',bd=0,width=WidthLabels1, anchor=tk.E)
+FirstNameLabel2.grid(row=3,column=1,padx=PadX1, pady=PadY1)
+
+FirstNameEntry2A = tk.Entry(Frame2A, bg = 'white', font = subFont1, width = 30)
+FirstNameEntry2A.grid(row=3,column=2,padx=PadX1, pady=PadY1)
+
+MiddleNameLabel2 = tk.Label(Frame2A, text='Middle Name: ',font = subFont1, bg='white',bd=0,width=WidthLabels1, anchor=tk.E)
+MiddleNameLabel2.grid(row=4,column=1,padx=PadX1, pady=PadY1)
+
+MiddleNameEntry2 = tk.Entry(Frame2A, bg = 'white', font = subFont1, width = 30)
+MiddleNameEntry2.grid(row=4,column=2,padx=PadX1, pady=PadY1)
+
+LastNameLabel2 = tk.Label(Frame2A, text='Last Name: ',font = subFont1, bg='white',bd=0,width=WidthLabels1, anchor=tk.E)
+LastNameLabel2.grid(row=5,column=1,padx=PadX1, pady=PadY1)
+
+LastNameEntry2 = tk.Entry(Frame2A, bg = 'white', font = subFont1, width = 30)
+LastNameEntry2.grid(row=5,column=2,padx=PadX1, pady=PadY1)
+
+AgeLabel2 = tk.Label(Frame2A, text='Age: ',font = subFont1, bg='white',bd=0,width=WidthLabels1, anchor=tk.E)
+AgeLabel2.grid(row=6,column=1,padx=PadX1, pady=PadY1)
+
+AgeEntry2 = tk.Entry(Frame2A, bg = 'white', font = subFont1, width = 30)
+AgeEntry2.grid(row=6,column=2,padx=PadX1, pady=PadY1)
+
+AddressLabel2 = tk.Label(Frame2A, text='Address: ',font = subFont1, bg='white',bd=0,width=WidthLabels1, anchor=tk.E)
+AddressLabel2.grid(row=7,column=1,padx=PadX1, pady=PadY1)
+
+AddressEntry2 = tk.Entry(Frame2A, bg = 'white', font = subFont1, width = 30)
+AddressEntry2.grid(row=7,column=2,padx=PadX1, pady=PadY1)
+
+GenderLabel2 = tk.Label(Frame2A, text='Gender: ',font = subFont1, bg='white',bd=0,width=WidthLabels1, anchor=tk.E)
+GenderLabel2.grid(row=8,column=1,padx=PadX1, pady=PadY1)
+
+GenderSelection = tk.StringVar()
+
+SubFrame1 = tk.Frame(Frame2A, bg="white")
+SubFrame1.grid(row=8,column=2,padx=PadX1, pady=PadY1)
+
+MaleButton =  tk.Radiobutton(SubFrame1, text="Male",  font=subFont1, state=tk.NORMAL, bg='white',
+                             variable=GenderSelection, value="Male", activebackground = 'white',
+                             highlightthickness = 0, borderwidth = 0)
+MaleButton.grid(row=1,column=1,padx=PadX1, pady=PadY1)
+
+FemaleButton =  tk.Radiobutton(SubFrame1, text="Female",  font=subFont1, state=tk.NORMAL, bg='white',
+                               variable=GenderSelection, value="Female", activebackground = 'white',
+                               highlightthickness = 0, borderwidth = 0, relief = tk.RIDGE)
+FemaleButton.grid(row=1,column=2,padx=PadX1, pady=PadY1)
+
+Frame2B = tk.Frame(Frame2, bg="white")
+Frame2B.grid(row=2,column=1, pady=4)
+
+CancelButton1 = tk.Button(Frame2B, text='Cancel', font = subFont1, width = 10, bg='white', fg='black', command=RegisterBack)
+CancelButton1.grid(row=1, column=1, padx=PadX1, pady=PadY1)
+
+RegisterButton1 = tk.Button(Frame2B, text='Register', font = subFont1, width = 10, bg='white', fg='black', command=RegisterProcess)
+RegisterButton1.grid(row=1, column=2, padx=PadX1, pady=PadY1)
+
+###################################################################################################################################
+def Logout():
+    HomePage.forget()
+    WelcomePage.pack()
+
+def GoToAboutPage():
+    HomePage.forget()
+    AboutPage.pack()
+
+def GoToStartPage():
+    global User
+    Database = GetDatabase()
+    FullName = Database[User][2]
+    Age = Database[User][3]
+    Address = Database[User][4]
+    Gender = Database[User][5]
+    print(FullName)
+    FirstName     = IF.GetINFO(FullName, "!","@")
+    print(FullName)
+    MiddleInitial = IF.GetINFO(FullName, "@","#")
+    print(FullName)
+    LastName      = IF.GetINFO(FullName, "#","%")
+
+    FullNameLabel3.configure(text= "Full Name: "+ LastName + ", " + FirstName + " " + MiddleInitial + ".")
+    AgeLabel3.configure(text="Age: "+ str(Age))
+    AddressLabel3.configure(text="Address: " + str(Address))
+    GenderLabel3.configure(text="Gender: " + str(Gender))
+    HomePage.forget()
+    StartPage.pack()
+    
+HomePage = tk.Frame(root) #Login Page
+##HomePage.pack()
+
+Background = tk.Label(HomePage, text='',font = subFont1, bg='white',bd=0)
+Background.pack()
+IF.tkShow(Background, "final.png", 1)
+
+ShutButton = tk.Button(HomePage, text='Shut Down', font = subFont1, width = 10, bg='white', fg='black', command=GoToLoginPage)
+ShutButton.place(x=20, y=420)
+
+StartButton = tk.Button(HomePage, text='Start', font = subFont1, width = 10, bg='white', fg='black', command=GoToStartPage)
+StartButton.place(x=340, y=330)
+
+AboutButton = tk.Button(HomePage, bg="white", fg="white",font=subFont1, highlightthickness=0, highlightbackground='white', borderwidth=0, highlightcolor="white", activebackground="white", command=GoToAboutPage)
+##AboutButton.place(x=20, y=20)
+##IF.tkShow(AboutButton, "Info1.png", 1)
+
+TimeLabel = tk.Label(HomePage, text=datetime.now().strftime("%H:%M:%S %p %B %d, %Y"), font = subFont1, bg='white')
+TimeLabel.place(x=445,y=420)
+
+LogOutButton = tk.Button(HomePage, text='Log Out', font = subFont1, width = 10, bg='white', fg='black', command=Logout)
+LogOutButton.place(x=620, y=20)
+
+GUI3 = tk.Frame(root) #Register Page
+
+Background = tk.Label(GUI3, text='',font = subFont1, bg='white',bd=0)
+Background.pack()
+IF.tkShow(Background, "bg.png", 1)
+
+###################################################################################################################################
+def AboutBack():
+    AboutPage.forget()
+    HomePage.pack()
+
+AboutPage = tk.Frame(root) #Login Page
+
+Background = tk.Label(AboutPage, text='',font = subFont1, bg='white',bd=0)
+Background.pack()
+IF.tkShow(Background, "final.png", 1)
+
+AboutLabel = tk.Label(AboutPage, text='About Page',font = subFont1, bg='white', fg="black",bd=0, anchor=tk.E)
+AboutLabel.place(x=70, y=55)
+
+BackButton = tk.Button(AboutPage, text='Back', font = subFont2, width = 10, bg='white', fg="black", command=AboutBack)
+BackButton.place(x=335, y=370)
+
+###################################################################################################################################
+MelonSize = ""
+def StartProcess():
+    global MelonSize
+    global Mode
+    if MelonSize == "":
+        tk.messagebox.showinfo("Information", "Please, select a size.")
+        return
+    else:
+        SmallButton.configure(bg="#db6161", fg='white')
+        MediumButton.configure(bg="#db6161", fg='white')
+        LargeButton.configure(bg="#db6161", fg='white')
+        Frequency1, Amplitude1 = DetFreq()
+        print("Amplitude (No Sound): ", Amplitude1)
+        SerialData2.write(bytes("1", "utf-8"))
+        time.sleep(1)
+        Frequency, Amplitude = DetFreq()
+        print("Amplitude (With Sound): ", Amplitude)
+        
+        Date = datetime.now().strftime("%B %m, %Y")
+        SerialData.write(bytes("A", "utf-8"))
+        time.sleep(2)
+        x = SerialData.readline().decode("utf-8")
+        Start = time.time()
+        while(x == ''):
+            x = SerialData.readline().decode("utf-8")
+            if (time.time() - Start) > 10:
+                x = "None"
+                break
+
+        if Mode == 1:
+            global RF_from_pickle
+            SugarContent = RF_from_pickle.predict([[float(Amplitude1)]])
+            print("Sugar Content(RF):", SugarContent)
+        elif Mode == 2:
+            global SVM_from_pickle
+            SugarContent = SVM_from_pickle.predict([[float(Amplitude1)]])
+            print("Sugar Content(SVM):", SugarContent)
+        elif Mode == 3:
+            global DT_from_pickle
+            SugarContent = DT_from_pickle.predict([[float(Amplitude1)]])
+            print("Sugar Content(DT):", SugarContent)
+            
+        SugarContent = round(SugarContent[0],2)
+        
+        InsertIntoDatabase2(Date, MelonSize, str(Frequency) + " Hz" , str(SugarContent) + " %")
+        FrequencyLabel.configure(text=" Frequency: "+ str(Frequency) + " Hz")
+        SugarLabel.configure(text=" Sugar Content: "+ str(SugarContent) + " %")
+        SizeLabel.configure(text=" Size: "+ MelonSize)
+        AmpLabel.configure(text=" AMP(out): " + str(x) + " mV\n AMP(in): " + str(round(float(Amplitude1),2)) + " mV")
+        Frame5.place(x=180, y=90)
+        MelonSize = ""
+    pass
+
+def BackStartPage():
+    StartPage.forget()
+    HomePage.pack()
+
+def SmallButFunc():
+    global MelonSize
+    SmallButton.configure(bg="#db6161", fg='white')
+    MediumButton.configure(bg="white", fg='black')
+    LargeButton.configure(bg="white", fg='black')
+    MelonSize = "Small"
+
+def MediumButFunc():
+    global MelonSize
+    SmallButton.configure(bg="white", fg='black')
+    MediumButton.configure(bg="#db6161", fg='white')
+    LargeButton.configure(bg="white", fg='black')
+    MelonSize = "Medium"
+
+def LargeButFunc():
+    global MelonSize
+    SmallButton.configure(bg="white", fg='black')
+    MediumButton.configure(bg="white", fg='black')
+    LargeButton.configure(bg="#db6161", fg='white')
+    MelonSize = "Large"
+
+StartPage = tk.Frame(root) #Login Page
+##StartPage.pack()
+
+Background = tk.Label(StartPage, text='',font = subFont1, bg='white',bd=0)
+Background.pack()
+IF.tkShow(Background, "final.png", 1)
+
+Frame3 = tk.Frame(StartPage,bg="white",highlightthickness=1, highlightbackground='white', borderwidth=0)
+Frame3.place(x=8, y=40)
+
+PadX2 = 3
+PadY2 = 4
+
+SelectLabel = tk.Label(Frame3, text='  Select Watermelon Size:    ',font = subFont3, bg='white', fg="black",bd=0, anchor=tk.E)
+SelectLabel.grid(row=1,column=1)
+
+SmallButton = tk.Button(Frame3, text='Small', font = subFont1, width = 25, bg='#db6161', fg='black', command=SmallButFunc)
+SmallButton.grid(row=2,column=1,padx=PadX1, pady=PadY1)
+
+MediumButton = tk.Button(Frame3, text='Medium', font = subFont1, width = 25, bg='#db6161', fg='black', command=MediumButFunc)
+MediumButton.grid(row=3,column=1,padx=PadX1, pady=PadY1)
+
+LargeButton = tk.Button(Frame3, text='Large', font = subFont1, width = 25, bg='#db6161', fg='black', command=LargeButFunc)
+LargeButton.grid(row=4,column=1,padx=PadX1, pady=PadY1)
+
+tk.Label(Frame3, text='', font = subFont2, bg="white").grid(row=5,column=1,padx=PadX1, pady=PadY1)
+
+ProcessButton = tk.Button(Frame3, text='Process', font = subFont1, width = 10, bg='white', fg='black', command=StartProcess)
+ProcessButton.grid(row=6,column=1,padx=PadX1, pady=PadY1)
+
+Frame4 = tk.Frame(StartPage,bg="white",highlightthickness=0, highlightbackground='black', borderwidth=0)
+Frame4.place(x=520, y=40)
+
+AboutLabel = tk.Label(Frame4, text='  User Information:         ',font = subFont3, bg="white",fg="black",bd=0, anchor=tk.E)
+AboutLabel.grid(row=1,column=1)
+
+FullNameLabel3 = tk.Label(Frame4, text='Full Name: ',font = subFont3, bg='white',bd=0,width=WidthLabels1, wraplength=300,anchor=tk.W,justify = tk.LEFT)
+FullNameLabel3.grid(row=2,column=1,padx=PadX1, pady=PadY1, sticky=tk.W)
+
+AgeLabel3 = tk.Label(Frame4, text='Age: ',font = subFont3, bg='white',bd=0,width=WidthLabels1, anchor=tk.W)
+AgeLabel3.grid(row=3,column=1,padx=PadX1, pady=PadY1, sticky=tk.W)
+
+AddressLabel3 = tk.Label(Frame4, text='Address: ',font = subFont3, bg='white',bd=0,width=WidthLabels1, anchor=tk.W,wraplength=250,justify = tk.LEFT)
+AddressLabel3.grid(row=4,column=1,padx=PadX1, pady=PadY1, sticky=tk.W)
+
+GenderLabel3 = tk.Label(Frame4, text='Gender: ',font = subFont3, bg='white',bd=0,width=WidthLabels1, anchor=tk.W)
+GenderLabel3.grid(row=5,column=1,padx=PadX1, pady=PadY1, sticky=tk.W)
+
+BackButton = tk.Button(StartPage, text='Back', font = subFont1, width = 10, bg='white', fg='black', command=BackStartPage)
+BackButton.place(x=30, y=400)
+
+######PROCESS DIALOG BOX
+
+Frame5 = tk.Frame(StartPage,bg="white",highlightthickness=1, highlightbackground='black', borderwidth=0)
+##Frame5.place(x=175, y=130)
+
+IF.Create_White_Screen("Frame5.png",450,310)
+
+Background = tk.Label(Frame5, text='',font = subFont1, bg='white',bd=0)
+Background.pack()
+IF.tkShow(Background, "Frame5.png", 1)
+
+SubFrame5 = tk.Frame(Frame5, bg="white")
+SubFrame5.place(x=10,y=10)
+
+ResultsLabel = tk.Label(SubFrame5, text='RESULTS: ',font = subFont1, bg='white',bd=0,width=WidthLabels2, anchor=tk.W)
+ResultsLabel.grid(row=1,column=1,padx=5, pady=7, sticky=tk.W)
+
+FrequencyLabel = tk.Label(SubFrame5, text=' Frequency (Hz): ',font = subFont1, bg='white',bd=0,width=WidthLabels2, anchor=tk.W)
+FrequencyLabel.grid(row=2,column=1,padx=PadX1, pady=PadY1, sticky=tk.W)
+
+SugarLabel = tk.Label(SubFrame5, text=' Sugar Content (%): ',font = subFont1, bg='white',bd=0,width=WidthLabels2, anchor=tk.W)
+SugarLabel.grid(row=3,column=1,padx=PadX1, pady=PadY1, sticky=tk.W)
+
+SizeLabel = tk.Label(SubFrame5, text=' Size: ',font = subFont1, bg='white',bd=0,width=WidthLabels2, anchor=tk.W)
+SizeLabel.grid(row=4,column=1,padx=PadX1, pady=PadY1, sticky=tk.W)
+
+AmpLabel = tk.Label(SubFrame5, text=' Inside Amplitude: ',font = subFont1, bg='white',bd=0,width=WidthLabels2, anchor=tk.W, justify=tk.LEFT)
+AmpLabel.grid(row=5,column=1,padx=PadX1, pady=PadY1, sticky=tk.W)
+
+def BackSubframe5Func():
+    Frame5.place_forget()
+
+BackSubframe5 = tk.Button(SubFrame5, text='DONE',font = subFont1, bg='#242424', fg='white',bd=0,width=WidthLabels2, anchor=tk.CENTER, justify=tk.CENTER, command=BackSubframe5Func)
+BackSubframe5.grid(row=6,column=1,padx=PadX1, pady=PadY1, sticky=tk.W+tk.E)
+
+#### HISTORY
+
+def HistoryBack():
+    HistoryPage.forget()
+    HomePage.pack()    
+
+HistoryPage = tk.Frame(root) #Login Page
+##HistoryPage.pack()
+
+Background = tk.Label(HistoryPage, text='',font = subFont1, bg='white',bd=0)
+Background.pack()
+IF.tkShow(Background, "bgnew1.png", 1)
+
+from tkinter import ttk
+tree=ttk.Treeview(HistoryPage,height=18)
+tree["columns"]=("1","2","3")
+tree.column("#0", width=185, minwidth=160, stretch=tk.NO)
+tree.column("1", width=185, minwidth=160, stretch=tk.NO)
+tree.column("2", width=185, minwidth=160, stretch=tk.NO)
+tree.column("3", width=185, minwidth=160, stretch=tk.NO)
+
+tree.heading("#0",text="Date",anchor=tk.W)
+tree.heading("1", text="Size",anchor=tk.W)
+tree.heading("2", text="Frequency",anchor=tk.W)
+tree.heading("3", text="Sugar Content",anchor=tk.W)
+
+tree.place(x=30, y=30)
+
+vsb = ttk.Scrollbar(HistoryPage, orient="vertical", command=tree.yview)
+vsb.place(x=765,y=30, height=381)
+
+def GetDatabase1(): ##Get Database in a form of list
+    global db
+    cur = db.cursor()
+    cur.execute("SELECT * FROM History ORDER by _rowid_")
+    rows = cur.fetchall()
+    return rows
+
+def CreateTable():
+    for i in GetDatabase1():
+        folder1=tree.insert("", 1, text=i[0], values=(i[1],i[2],i[3]))
+
+BackButton = tk.Button(HistoryPage, text='Back', font = subFont2, width = 10, bg='#242424', fg='white', command=HistoryBack)
+BackButton.place(x=623, y=430)
+
+CreateTable()
+
+def InsertIntoDatabase2(Date,Size,Frequency,Sugar):
+    global db
+    cur = db.cursor()
+    cur.execute("SELECT * FROM History ORDER by _rowid_")
+    rows = cur.fetchall()
+    cur.execute('INSERT INTO `History`(`Date`,`Size`,`Frequency`,`Sugar Content`,\
+                `Extra1`,`Extra2`,`Extra3`,`Extra4`,`Extra5`,`Extra6`) ' + \
+                'VALUES ("' + Date + '","' + Size + '","' + Frequency + '","' + Sugar + \
+                '",NULL,NULL,NULL,NULL,NULL,NULL);')
+    db.commit()
+    return rows
+
+root.after(5,MainLoop)
+root.mainloop()
